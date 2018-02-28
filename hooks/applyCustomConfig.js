@@ -305,14 +305,19 @@ var applyCustomConfig = (function(){
         var hasPbxProjPrefs = false;
         _.each(preferences, function (preference) {
             if(preference.attrib.name.match(new RegExp("^ios-"))){
-                hasPbxProjPrefs = true;
                 var parts = preference.attrib.name.split("-"),
-                    target = "project.pbxproj",
                     prefData = {
                         type: parts[1],
                         name: parts[2],
                         value: preference.attrib.value
                     };
+                if(prefData["type"] == "XCScheme"){
+                    target = projectName + ".xcscheme"
+                }
+                else {
+                    target = "project.pbxproj"
+                    hasPbxProjPrefs = true;
+                }
                 if(preference.attrib.buildType){
                     prefData["buildType"] = preference.attrib.buildType;
                 }
@@ -809,6 +814,95 @@ var applyCustomConfig = (function(){
     }
 
     /**
+     * Updates the *-Info.plist file with data from config.xml by parsing to an xml string, then using the plist
+     * module to convert the data to a map.  The config.xml data is then replaced or appended to the original plist file
+     * @param targetFilePath
+     * @param configItems
+     */
+    function updateIosXCScheme (targetFilePath, platformPath, configItems) {
+
+        _.each(configItems, function (item) {
+            switch(item.type){
+                case "XCScheme":
+                    if( item.name == 'AddPodsBuildTarget' )
+                    {
+                        addPodsBuildTarget(targetFilePath, platformPath, item);
+                    }
+                    break;
+            }
+        });
+    }
+
+    function addPodsBuildTarget (targetFilePath, platformPath, item) {
+
+        var podsProjectFilePath = path.join(platformPath, 'Pods/Pods.xcodeproj/project.pbxproj');
+        var xcodeProject = xcode.project(podsProjectFilePath);
+
+        xcodeProject.parse(function(err){
+            if(err){
+                return;
+            }
+            else{
+                var fileReferences = xcodeProject.pbxFileReferenceSection();
+                var name = null;
+                var blueprintIdentifier = false;
+
+                _.each(fileReferences, function (file, fileRef) {
+                    if(fileRef.match("_comment") || !file.name) return;
+                    name = file.name.replace(/^"(.*)"$/, "$1");
+                    if( name && name == "libPods-" + projectName + ".a" )
+                    {
+                        blueprintIdentifier = fileRef;
+                        return false;
+                    }
+                });
+
+                if( !blueprintIdentifier ) return;
+
+                var tempManifest = fileUtils.parseElementtreeSync(targetFilePath),
+                root = tempManifest.getroot();
+
+                var parentEl = root.find('BuildAction')
+                var foundTarget = false;
+                var node = null;
+
+                _.each(parentEl.getchildren(), function (childEl) {
+                    if( !node ) { node = childEl; }
+                    _.each(childEl.getchildren(), function (childEl) {
+                        _.each(childEl.getchildren(), function (child) {
+                            if( child.attrib['BlueprintName'] == "Pods-" + projectName ){
+                                foundTarget = true;
+                                return false;
+                            }
+                        });
+                    })
+                });
+
+                //add entry if not found
+                if( foundTarget === false && node ){
+                    var newEl = et.Element('BuildActionEntry');
+                    newEl['attrib']['buildForTesting'] = "YES";
+                    newEl['attrib']['buildForRunning'] = "YES";
+                    newEl['attrib']['buildForProfiling'] = "YES";
+                    newEl['attrib']['buildForArchiving'] = "YES";
+                    newEl['attrib']['buildForAnalyzing'] = "YES";
+
+                    newSubEl = et.SubElement(newEl, 'BuildableReference');
+
+                    newSubEl['attrib']['BuildableIdentifier'] = "primary";
+                    newSubEl['attrib']['BlueprintIdentifier'] = blueprintIdentifier;
+                    newSubEl['attrib']['BuildableName'] = "libPods-" + projectName + ".a";
+                    newSubEl['attrib']['BlueprintName'] = "Pods-" + projectName;
+                    newSubEl['attrib']['ReferencedContainer'] = "container:Pods/Pods.xcodeproj";
+
+                    node.append(newEl);
+                    fs.writeFileSync(targetFilePath, tempManifest.write({indent: 4}), 'utf-8');
+                }
+            }
+        });
+    }
+
+    /**
      * Updates an XCode build configuration setting with the given item.
      * @param {Object} item - configuration item containing setting data
      * @param {Object} buildConfig - XCode build config object
@@ -1026,6 +1120,10 @@ var applyCustomConfig = (function(){
                     targetFilePath = path.join(platformPath, projectName, targetName);
                     ensureBackup(targetFilePath, platform, targetName);
                     updateIosPlist(targetFilePath, configItems);
+                }else if (targetName.indexOf("xcscheme") > -1) {
+                    targetFilePath = path.join(platformPath, projectName + '.xcworkspace/xcshareddata/xcschemes', targetName);
+                    //ensureBackup(targetFilePath, platform, targetName);
+                    updateIosXCScheme(targetFilePath, platformPath, configItems);
                 }else if (targetName === "project.pbxproj") {
                     targetFilePath = path.join(platformPath, projectName + '.xcodeproj', targetName);
                     ensureBackup(targetFilePath, platform, targetName);
