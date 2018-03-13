@@ -1115,7 +1115,12 @@ var applyCustomConfig = (function(){
         _.each(configData, function (configItems, targetName) {
             var targetFilePath;
             if (platform === 'ios') {
-                if (targetName.indexOf("Info.plist") > -1) {
+                if (targetName.indexOf("Stickers-Info.plist") > -1) {
+                    targetName =  projectName + '-Stickers-Info.plist';
+                    targetFilePath = path.join(platformPath, projectName + ' Stickers', targetName);
+                    ensureBackup(targetFilePath, platform, targetName);
+                    updateIosPlist(targetFilePath, configItems);
+                }else if (targetName.indexOf("Info.plist") > -1) {
                     targetName =  projectName + '-Info.plist';
                     targetFilePath = path.join(platformPath, projectName, targetName);
                     ensureBackup(targetFilePath, platform, targetName);
