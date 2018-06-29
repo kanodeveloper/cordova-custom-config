@@ -931,6 +931,9 @@ var applyCustomConfig = (function(){
                 }
                 var value = (item.quote && (item.quote === "none" || item.quote === "key")) ? item.value : quoteEscape(item.value);
 
+                //ensure we only update IPHONEOS_DEPLOYMENT_TARGET for target type AppIcon
+                if( name == "IPHONEOS_DEPLOYMENT_TARGET" && block["buildSettings"]["ASSETCATALOG_COMPILER_APPICON_NAME"] != 'AppIcon' ) continue;
+
                 block["buildSettings"][name] = value;
                 modified = true;
                 logger.verbose(mode+" XCBuildConfiguration key={ "+name+" } to value={ "+value+" } for build type='"+block['name']+"' in block='"+blockName+"'");
